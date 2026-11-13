@@ -77,4 +77,8 @@ sudo systemctl enable signalscout
 ```
 
 ## Documentation
-* [NGINX Reverse Proxy Configuration](nginx/nginx.md)
+
+* [Server Architecture, Design & Setup Guide](docs/server_setup_and_design.md)
+* [NGINX Reverse Proxy Configuration](docs/nginx.md)
+
+
