@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ site_name }}</title>
+
+    <link rel="manifest" href="/manifest.json">
+    <script>
+      if('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js');
+      }
+    </script>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 0; overflow: hidden; }
+        #map { height: 60vh; width: 100%; }
+        #data-container { height: 40vh; overflow-y: auto; padding: 20px; box-sizing: border-box; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+
+    <!-- Map Container -->
+    <div id="map"></div>
+
+    <!-- Data Table Container -->
+    <div id="data-container">
+        <h2>Detected Targets in the last 12 hours</h2>
+        <table id="targets-table">
+            <thead>
+                <tr>
+                    <th>First Seen</th>
+                    <th>Last Seen</th>
+                    <th>Operator</th>
+                    <!--<th>Manufacturer</th>-->
+                    <th>Area</th>
+                    <th>Confidence</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Rows will be injected here by JavaScript later -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        var map = L.map('map').setView([parseFloat('{{ map_lat }}'), parseFloat('{{ map_lon }}')], parseInt('{{ map_zoom }}'));
+        map.attributionControl.setPrefix(false);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap',
+            referrerPolicy: 'strict-origin-when-cross-origin'
+        }).addTo(map);
+        var markers = L.layerGroup().addTo(map);
+
+        function loadData() {
+            fetch('/api/targets/')
+                .then(response => response.json())
+                .then(data => {
+                    // Clear existing markers and table rows
+                    markers.clearLayers();
+                    const tbody = document.querySelector('#targets-table tbody');
+                    tbody.innerHTML = '';
+
+                    // 1. MAP: Draw oldest to newest (so newest sits on top naturally)
+                    // We use [...data.targets].reverse() to copy and reverse the array without altering the original
+                    [...data.targets].reverse().forEach(target => {
+                        const options = { timeZone: 'America/New_York', timeZoneName: 'short' };
+                        const lastStr = new Date(target.last_seen).toLocaleString('en-US', options);
+
+                        const popupHTML = `
+                            <b>Operator:</b> ${target.operator || 'Unknown'}<br>
+                            <b>Last Seen:</b> ${lastStr}
+                        `;
+                        
+                        // No hacky zIndexOffset needed. Leaflet will naturally layer them correctly.
+                        const marker = L.marker([target.latitude, target.longitude]).bindPopup(popupHTML);
+                        markers.addLayer(marker);
+                    });
+
+                    // 2. TABLE: Draw newest to oldest (so newest is at the top of the HTML table)
+                    data.targets.forEach(target => {
+                        const options = { timeZone: 'America/New_York', timeZoneName: 'short' };
+                        const firstStr = new Date(target.first_seen).toLocaleString('en-US', options);
+                        const lastStr = new Date(target.last_seen).toLocaleString('en-US', options);
+
+                        const row = `<tr>
+                            <td>${firstStr}</td>
+                            <td>${lastStr}</td>
+                            <td>${target.operator || ''}</td>
+                            <!--<td>${target.manufacturer || ''}</td>-->
+                            <td>${target.area}</td>
+                            <td>${target.confidence || ''}</td>
+                        </tr>`;
+                        tbody.insertAdjacentHTML('beforeend', row);
+                    });
+                })
+                .catch(error => console.error('Error fetching data:', error));
+        }
+
+        // Load immediately on page load
+        loadData();
+
+        // Poll for new data every 5 seconds
+        setInterval(loadData, 5000);
+    </script>
+</body>
+</html>
