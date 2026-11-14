@@ -12,6 +12,7 @@ import hashlib
 from django.views.decorators.http import require_GET
 from django.http import FileResponse
 import os
+import re
 
 def map_view(request):
     context = {
@@ -21,6 +22,20 @@ def map_view(request):
         'map_zoom': settings.MAP_DEFAULT_ZOOM,
     }
     return render(request, 'targets/map.html', context)
+
+def parse_semver(v):
+    """
+    Extracts (major, minor, patch) as a tuple of ints.
+    Ignores git commit hashes, '-dirty', 'v' prefixes, etc.
+    Examples:
+      '2.0.0-3-ga1fbeca-dirty' -> (2, 0, 0)
+      '1.0.8'                  -> (1, 0, 8)
+      'v1.0.8'                 -> (1, 0, 8)
+    """
+    if not v:
+        return (0, 0, 0)
+    match = re.search(r'(\d+)(?:\.(\d+))?(?:\.(\d+))?', str(v))
+    return tuple(int(x) if x is not None else 0 for x in match.groups()) if match else (0, 0, 0)
 
 @csrf_exempt
 def ingest_target(request):
@@ -279,15 +294,14 @@ def heartbeat(request):
 
         response_payload = {"status": "success", "message": "Heartbeat received"}
 
-# New OTA Check Logic (Relational Architecture)
+        # New OTA Check Logic (Relational Architecture)
         if hasattr(watcher, 'auto_update_enabled') and watcher.auto_update_enabled and watcher.hardware_target:
             # 1. Get the top-level active release (Do NOT filter by hardware_target here)
             latest_fw = FirmwareRelease.objects.filter(is_active=True).order_by('-release_date').first()
-
-            if latest_fw and current_version != latest_fw.version:
+            # Only offer OTA if the server's release is strictly newer than what the device is running
+            if latest_fw and parse_semver(latest_fw.version) > parse_semver(current_version):
                 # 2. Query the child binaries for the specific hardware target
                 target_binary = latest_fw.binaries.filter(hardware_target=watcher.hardware_target).first()
-
                 if target_binary:
                     # Force HTTPS to prevent double-connecting and TLS overhead
                     raw_url = request.build_absolute_uri(target_binary.binary_file.url)
